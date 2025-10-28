@@ -1,17 +1,17 @@
 {
   "images" : [
     {
-      "filename" : "generic_api_12.svg",
+      "filename" : "docker_12.svg",
       "idiom" : "universal",
       "scale" : "1x"
     },
     {
-      "filename" : "generic_api_24.svg",
+      "filename" : "docker_24.svg",
       "idiom" : "universal",
       "scale" : "2x"
     },
     {
-      "filename" : "generic_api_36.svg",
+      "filename" : "docker_36.svg",
       "idiom" : "universal",
       "scale" : "3x"
     }

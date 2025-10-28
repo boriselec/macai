@@ -66,9 +66,15 @@ struct MessageCell: View, Equatable {
                     }
 
                     if filteredMessage != "" {
-                        HighlightedText(filteredMessage, highlight: searchText, elementType: "chatlist")
-                            .lineLimit(1)
-                            .truncationMode(.tail)
+                        if message.starts(with: "<image-uuid>") {
+                            Text("🖼️ Image")
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        } else {
+                            HighlightedText(filteredMessage, highlight: searchText, elementType: "chatlist")
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
                     }
                 }
                 .padding(8)
@@ -143,7 +149,7 @@ struct MessageCell_Previews: PreviewProvider {
         chat.createdDate = Date()
         chat.updatedDate = Date()
         chat.systemMessage = AppConstants.chatGptSystemMessage
-        chat.gptModel = AppConstants.chatGptDefaultModel
+        chat.gptModel = AppConstants.defaultPrimaryModel
         return chat
     }
 }

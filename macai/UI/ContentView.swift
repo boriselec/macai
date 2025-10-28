@@ -12,6 +12,8 @@ import Foundation
 import SwiftUI
 
 struct ContentView: View {
+    private static var handledStartChatRequestIds = Set<String>()
+
     @State private var window: NSWindow?
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.managedObjectContext) private var viewContext
@@ -27,10 +29,10 @@ struct ContentView: View {
 
     @State var selectedChat: ChatEntity?
     @AppStorage("gptToken") var gptToken = ""
-    @AppStorage("gptModel") var gptModel = AppConstants.chatGptDefaultModel
+    @AppStorage("gptModel") var gptModel = AppConstants.defaultPrimaryModel
     @AppStorage("systemMessage") var systemMessage = AppConstants.chatGptSystemMessage
     @AppStorage("lastOpenedChatId") var lastOpenedChatId = ""
-    @AppStorage("apiUrl") var apiUrl = AppConstants.apiUrlChatCompletions
+    @AppStorage("apiUrl") var apiUrl = AppConstants.apiUrlOpenAIResponses
     @AppStorage("defaultApiService") private var defaultApiServiceID: String?
     @StateObject private var previewStateManager = PreviewStateManager()
 
@@ -59,7 +61,7 @@ struct ContentView: View {
                     WelcomeScreen(
                         chatsCount: chats.count,
                         apiServiceIsPresent: apiServices.count > 0,
-                        customUrl: apiUrl != AppConstants.apiUrlChatCompletions,
+                        customUrl: apiUrl != AppConstants.apiUrlOpenAIResponses,
                         openPreferencesView: openPreferencesView,
                         newChat: newChat
                     )
@@ -124,10 +126,32 @@ struct ContentView: View {
                 object: nil,
                 queue: .main
             ) { notification in
-                let windowId = window?.windowNumber
-                if let sourceWindowId = notification.userInfo?["windowId"] as? Int,
-                    sourceWindowId == windowId
+                let currentWindowId = window?.windowNumber
+                let sourceWindowId = notification.userInfo?["windowId"] as? Int
+
+                let shouldHandle: Bool
+                if let sourceWindowId, sourceWindowId > 0 {
+                    shouldHandle = sourceWindowId == currentWindowId
+                }
+                else {
+                    shouldHandle = true
+                }
+
+                guard shouldHandle else { return }
+
+                if let requestId = notification.userInfo?["requestId"] as? String {
+                    if ContentView.handledStartChatRequestIds.contains(requestId) {
+                        return
+                    }
+                    ContentView.handledStartChatRequestIds.insert(requestId)
+                }
+
+                if let uriString = notification.userInfo?["apiServiceURI"] as? String,
+                   let service = apiService(fromURI: uriString)
                 {
+                    newChat(using: service)
+                }
+                else {
                     newChat()
                 }
             }
@@ -135,11 +159,14 @@ struct ContentView: View {
         .navigationTitle("Chats")
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
-                Image("logo_\(selectedChat?.apiService?.type ?? "")")
-                    .resizable()
-                    .renderingMode(.template)
-                    .interpolation(.high)
-                    .frame(width: 16, height: 16)
+                if let selectedChatType = selectedChat?.apiService?.type {
+                    Image("logo_\(selectedChatType)")
+                        .resizable()
+                        .renderingMode(.template)
+                        .interpolation(.high)
+                        .frame(width: 16, height: 16)
+                        .padding(.horizontal, 12)
+                }
 
                 if let selectedChat = selectedChat {
                     Menu {
@@ -164,12 +191,6 @@ struct ContentView: View {
                     } label: {
                         Text(selectedChat.apiService?.name ?? "Select API Service")
                     }
-                }
-
-                Button(action: {
-                    isSearchPresented.toggle()
-                }) {
-                    Image(systemName: "magnifyingglass")
                 }
                 
                 Button(action: {
@@ -209,12 +230,16 @@ struct ContentView: View {
     }
 
     func newChat() {
+        newChat(using: nil)
+    }
+
+    private func newChat(using preferredService: APIServiceEntity?) {
         let uuid = UUID()
         let newChat = ChatEntity(context: viewContext)
 
         newChat.id = uuid
         newChat.newChat = true
-        newChat.temperature = 0.8
+        newChat.temperature = 1
         newChat.top_p = 1.0
         newChat.behavior = "default"
         newChat.newMessage = ""
@@ -223,17 +248,22 @@ struct ContentView: View {
         newChat.systemMessage = systemMessage
         newChat.gptModel = gptModel
 
-        if let defaultServiceIDString = defaultApiServiceID,
-            let url = URL(string: defaultServiceIDString),
-            let objectID = viewContext.persistentStoreCoordinator?.managedObjectID(forURIRepresentation: url)
+        if let service = preferredService {
+            newChat.apiService = service
+            newChat.persona = service.defaultPersona
+            newChat.gptModel = service.model ?? AppConstants.defaultModel(for: service.type)
+            newChat.systemMessage = service.defaultPersona?.systemMessage ?? AppConstants.chatGptSystemMessage
+        }
+        else if let defaultServiceIDString = defaultApiServiceID,
+                let url = URL(string: defaultServiceIDString),
+                let objectID = viewContext.persistentStoreCoordinator?.managedObjectID(forURIRepresentation: url)
         {
-
             do {
                 let defaultService = try viewContext.existingObject(with: objectID) as? APIServiceEntity
                 newChat.apiService = defaultService
                 newChat.persona = defaultService?.defaultPersona
                 // TODO: Refactor the following code along with ChatView.swift
-                newChat.gptModel = defaultService?.model ?? AppConstants.chatGptDefaultModel
+                newChat.gptModel = defaultService?.model ?? AppConstants.defaultModel(for: defaultService?.type)
                 newChat.systemMessage = newChat.persona?.systemMessage ?? AppConstants.chatGptSystemMessage
             }
             catch {
@@ -248,6 +278,22 @@ struct ContentView: View {
         catch {
             print("Error saving new chat: \(error.localizedDescription)")
             viewContext.rollback()
+        }
+    }
+
+    private func apiService(fromURI uriString: String) -> APIServiceEntity? {
+        guard let url = URL(string: uriString),
+              let objectID = viewContext.persistentStoreCoordinator?.managedObjectID(forURIRepresentation: url)
+        else {
+            return nil
+        }
+
+        do {
+            return try viewContext.existingObject(with: objectID) as? APIServiceEntity
+        }
+        catch {
+            print("Failed to locate API service for URI \(uriString): \(error)")
+            return nil
         }
     }
 
@@ -302,7 +348,7 @@ struct ContentView: View {
         }
         
         chat.apiService = newService
-        chat.gptModel = newService.model ?? AppConstants.chatGptDefaultModel
+        chat.gptModel = newService.model ?? AppConstants.defaultModel(for: newService.type)
         chat.objectWillChange.send()
         try? viewContext.save()
 

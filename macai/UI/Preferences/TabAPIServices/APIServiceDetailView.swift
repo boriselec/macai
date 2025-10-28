@@ -18,8 +18,12 @@ struct APIServiceDetailView: View {
     )
     private var personas: FetchedResults<PersonaEntity>
 
-    init(viewContext: NSManagedObjectContext, apiService: APIServiceEntity?) {
-        let viewModel = APIServiceDetailViewModel(viewContext: viewContext, apiService: apiService)
+    init(viewContext: NSManagedObjectContext, apiService: APIServiceEntity?, preferredType: String? = nil) {
+        let viewModel = APIServiceDetailViewModel(
+            viewContext: viewContext,
+            apiService: apiService,
+            preferredType: preferredType
+        )
         _viewModel = StateObject(wrappedValue: viewModel)
     }
 
@@ -167,7 +171,8 @@ struct APIServiceDetailView: View {
                             gptToken: viewModel.apiKey,
                             gptModel: viewModel.model,
                             apiUrl: viewModel.url,
-                            apiType: viewModel.type
+                            apiType: viewModel.type,
+                            imageGenerationSupported: viewModel.imageGenerationSupported
                         )
                     }
                 }
@@ -250,6 +255,25 @@ struct APIServiceDetailView: View {
                             .buttonStyle(PlainButtonStyle())
                             .help(
                                 "If enabled, you can upload images to be processed by the AI. This feature is only available for certain models that support vision capabilities."
+                            )
+
+                            Spacer()
+                        }
+                    }
+                }
+
+                if viewModel.supportsImageGeneration {
+                    Toggle(isOn: $viewModel.imageGenerationSupported) {
+                        HStack {
+                            Text("Image generation supported")
+                            Button(action: {
+                            }) {
+                                Image(systemName: "questionmark.circle")
+                                    .foregroundColor(.blue)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            .help(
+                                "Enable when the selected model should expose image generation features in chat."
                             )
 
                             Spacer()

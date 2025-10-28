@@ -219,6 +219,7 @@ struct PersonaDetailView: View {
                     text: $systemMessage,
                     attachedImages: .constant([]),
                     imageUploadsAllowed: false,
+                    imageGenerationSupported: false,
                     onEnter: {},
                     onAddImage: {},
                     inputPlaceholderText: "Enter system message here",
@@ -339,6 +340,15 @@ struct PersonaDetailView: View {
         }
         else {
             personaToSave.editedDate = Date()
+        }
+
+        if personaToSave.objectID.isTemporaryID {
+            do {
+                try viewContext.obtainPermanentIDs(for: [personaToSave])
+            }
+            catch {
+                print("Failed to obtain permanent ID for persona: \(error)")
+            }
         }
 
         do {

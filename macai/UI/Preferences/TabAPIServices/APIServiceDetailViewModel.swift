@@ -13,6 +13,7 @@ class APIServiceDetailViewModel: ObservableObject {
     private let viewContext: NSManagedObjectContext
     var apiService: APIServiceEntity?
     private var cancellables = Set<AnyCancellable>()
+    private var hasProcessedInitialModelSelection = false
 
     @Published var name: String = AppConstants.defaultApiConfigurations[AppConstants.defaultApiType]?.name ?? ""
     @Published var type: String = AppConstants.defaultApiType
@@ -23,6 +24,7 @@ class APIServiceDetailViewModel: ObservableObject {
     @Published var useStreamResponse: Bool = true
     @Published var generateChatNames: Bool = true
     @Published var imageUploadsAllowed: Bool = false
+    @Published var imageGenerationSupported: Bool = false
     @Published var defaultAiPersona: PersonaEntity?
     @Published var apiKey: String = ""
     @Published var isCustomModel: Bool = false
@@ -33,9 +35,20 @@ class APIServiceDetailViewModel: ObservableObject {
     @Published var isLoadingModels: Bool = false
     @Published var modelFetchError: String? = nil
 
-    init(viewContext: NSManagedObjectContext, apiService: APIServiceEntity?) {
+    init(viewContext: NSManagedObjectContext, apiService: APIServiceEntity?, preferredType: String? = nil) {
         self.viewContext = viewContext
         self.apiService = apiService
+
+        if apiService == nil,
+           let preferredType,
+           let configuration = AppConstants.defaultApiConfigurations[preferredType]
+        {
+            type = preferredType
+            defaultApiConfiguration = configuration
+            selectedModel = configuration.defaultModel
+            model = configuration.defaultModel
+            name = configuration.name
+        }
 
         setupInitialValues()
         setupBindings()
@@ -52,6 +65,7 @@ class APIServiceDetailViewModel: ObservableObject {
             useStreamResponse = service.useStreamResponse
             generateChatNames = service.generateChatNames
             imageUploadsAllowed = service.imageUploadsAllowed
+            imageGenerationSupported = service.imageGenerationSupported
             defaultAiPersona = service.defaultPersona
             defaultApiConfiguration = AppConstants.defaultApiConfigurations[type]
             selectedModel = model
@@ -66,17 +80,45 @@ class APIServiceDetailViewModel: ObservableObject {
             }
         }
         else {
-            url = AppConstants.apiUrlChatCompletions
-            imageUploadsAllowed = AppConstants.defaultApiConfigurations[type]?.imageUploadsSupported ?? false
+            if let config = AppConstants.defaultApiConfigurations[type] {
+                url = config.url
+                imageUploadsAllowed = config.imageUploadsSupported
+                let selected = selectedModel.isEmpty ? config.defaultModel : selectedModel
+                imageGenerationSupported = Self.supportedState(
+                    for: selected,
+                    using: config
+                )
+                name = config.name
+                model = selected
+                selectedModel = selected
+                defaultApiConfiguration = config
+            }
+            else {
+                url = AppConstants.apiUrlOpenAIResponses
+                imageUploadsAllowed = false
+                imageGenerationSupported = false
+            }
         }
     }
 
     private func setupBindings() {
         $selectedModel
             .sink { [weak self] newValue in
-                self?.isCustomModel = (newValue == "custom")
-                if !self!.isCustomModel {
-                    self?.model = newValue
+                guard let self else { return }
+                self.isCustomModel = (newValue == "custom")
+                if !self.isCustomModel {
+                    self.model = newValue
+                }
+
+                guard let config = self.defaultApiConfiguration else { return }
+
+                if self.hasProcessedInitialModelSelection == false {
+                    self.hasProcessedInitialModelSelection = true
+                    return
+                }
+
+                if Self.supportedState(for: newValue, using: config) {
+                    self.imageGenerationSupported = true
                 }
             }
             .store(in: &cancellables)
@@ -93,7 +135,10 @@ class APIServiceDetailViewModel: ObservableObject {
             model: ""
         )
 
-        let apiService = APIServiceFactory.createAPIService(config: config)
+        let apiService = APIServiceFactory.createAPIService(
+            config: config,
+            imageGenerationSupported: imageGenerationSupported
+        )
 
         Task {
             do {
@@ -141,6 +186,7 @@ class APIServiceDetailViewModel: ObservableObject {
         serviceToSave.useStreamResponse = useStreamResponse
         serviceToSave.generateChatNames = generateChatNames
         serviceToSave.imageUploadsAllowed = imageUploadsAllowed
+        serviceToSave.imageGenerationSupported = imageGenerationSupported
         serviceToSave.defaultPersona = defaultAiPersona
 
         if apiService == nil {
@@ -158,6 +204,15 @@ class APIServiceDetailViewModel: ObservableObject {
             }
             catch {
                 print("Failed to set token: \(error.localizedDescription)")
+            }
+        }
+
+        if serviceToSave.objectID.isTemporaryID {
+            do {
+                try viewContext.obtainPermanentIDs(for: [serviceToSave])
+            }
+            catch {
+                print("Failed to obtain permanent ID for API service: \(error)")
             }
         }
 
@@ -187,8 +242,14 @@ class APIServiceDetailViewModel: ObservableObject {
         self.url = self.defaultApiConfiguration!.url
         self.model = self.defaultApiConfiguration!.defaultModel
         self.selectedModel = self.model
-        
+
         self.imageUploadsAllowed = self.defaultApiConfiguration!.imageUploadsSupported
+        self.imageGenerationSupported = Self.supportedState(
+            for: self.model,
+            using: self.defaultApiConfiguration!
+        )
+
+        self.hasProcessedInitialModelSelection = false
 
         fetchModelsForService()
     }
@@ -204,5 +265,18 @@ class APIServiceDetailViewModel: ObservableObject {
 
     var supportsImageUploads: Bool {
         return AppConstants.defaultApiConfigurations[type]?.imageUploadsSupported ?? false
+    }
+
+    var supportsImageGeneration: Bool {
+        let configSupports = AppConstants.defaultApiConfigurations[type]?.imageGenerationSupported ?? false
+        return configSupports || imageGenerationSupported
+    }
+
+    private static func supportedState(
+        for model: String,
+        using config: AppConstants.defaultApiConfiguration
+    ) -> Bool {
+        guard config.imageGenerationSupported else { return false }
+        return config.autoEnableImageGenerationModels.contains(model)
     }
 }

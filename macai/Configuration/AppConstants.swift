@@ -10,7 +10,19 @@ import Foundation
 struct AppConstants {
     static let requestTimeout: TimeInterval = 180
     static let apiUrlChatCompletions: String = "https://api.openai.com/v1/chat/completions"
+    static let apiUrlOpenAIResponses: String = "https://api.openai.com/v1/responses"
     static let chatGptDefaultModel = "gpt-4o"
+    static var defaultPrimaryModel: String {
+        defaultApiConfigurations[defaultApiType]?.defaultModel ?? chatGptDefaultModel
+    }
+
+    static func defaultModel(for type: String?) -> String {
+        guard let type = type?.lowercased() else {
+            return defaultPrimaryModel
+        }
+        return defaultApiConfigurations[type]?.defaultModel ?? defaultPrimaryModel
+    }
+
     static let chatGptContextSize: Double = 10
     static let chatGptSystemMessage: String = String(
         format:
@@ -26,8 +38,14 @@ struct AppConstants {
     static let defaultPersonaColor = "#007AFF"
     static let defaultPersonasFlag = "defaultPersonasAdded"
     static let defaultPersonaTemperature: Float = 0.7
-    static let defaultTemperatureForChatNameGeneration: Float = 0.6
     static let defaultTemperatureForChat: Float = 0.7
+    static let geminiLegacyAPIURL = "https://generativelanguage.googleapis.com/v1beta/chat/completions"
+    static let geminiCurrentAPIURL = "https://generativelanguage.googleapis.com/v1beta/models"
+    static let geminiURLMigrationCompletedKey = "GeminiURLMigrationCompleted"
+    static let geminiURLMigrationSkippedKey = "GeminiURLMigrationSkipped"
+    static let geminiMigrationPendingNotificationKey = "GeminiURLMigrationPendingMessage"
+    static let chatCompletionsMigrationCompletedKey = "ChatCompletionsMigrationCompleted"
+    static let chatCompletionsMigrationPendingNotificationKey = "ChatCompletionsMigrationPendingMessage"
     static let openAiReasoningModels: [String] = [
         "o1", "o1-preview", "o1-mini", "o3-mini", "o3-mini-high", "o3-mini-2025-01-31", "o1-preview-2024-09-12",
         "o1-mini-2024-09-12", "o1-2024-12-17",
@@ -127,7 +145,7 @@ struct AppConstants {
         ]
     }
 
-    static let defaultApiType = "chatgpt"
+    static let defaultApiType = "openai-responses"
 
     struct defaultApiConfiguration {
         let name: String
@@ -140,24 +158,31 @@ struct AppConstants {
         var inherits: String? = nil
         var modelsFetching: Bool = true
         var imageUploadsSupported: Bool = false
+        var imageGenerationSupported: Bool = false
+        var autoEnableImageGenerationModels: [String] = []
     }
 
     static let defaultApiConfigurations = [
-        "chatgpt": defaultApiConfiguration(
+        "openai-responses": defaultApiConfiguration(
             name: "OpenAI",
-            url: "https://api.openai.com/v1/chat/completions",
+            url: Self.apiUrlOpenAIResponses,
+            apiKeyRef: "https://platform.openai.com/docs/api-reference/api-keys",
+            apiModelRef: "https://platform.openai.com/docs/models",
+            defaultModel: "gpt-5",
+            models: [
+                "gpt-5",
+            ],
+            imageUploadsSupported: true,
+            imageGenerationSupported: true
+        ),
+        "chatgpt": defaultApiConfiguration(
+            name: "Generic Completions API",
+            url: Self.apiUrlChatCompletions,
             apiKeyRef: "https://platform.openai.com/docs/api-reference/api-keys",
             apiModelRef: "https://platform.openai.com/docs/models",
             defaultModel: "gpt-4o",
             models: [
-                "o1-preview",
-                "o1-mini",
-                "gpt-4o",
-                "chatgpt-4o-latest",
-                "gpt-4o-mini",
-                "gpt-4-turbo",
-                "gpt-4",
-                "gpt-3.5-turbo",
+                "gpt-5"
             ],
             imageUploadsSupported: true
         ),
@@ -188,8 +213,10 @@ struct AppConstants {
             url: "https://api.anthropic.com/v1/messages",
             apiKeyRef: "https://docs.anthropic.com/en/docs/initial-setup#prerequisites",
             apiModelRef: "https://docs.anthropic.com/en/docs/about-claude/models",
-            defaultModel: "claude-3-5-sonnet-latest",
+            defaultModel: "claude-4.1-sonnet",
             models: [
+                "claude-4.1-sonnet",
+                "claude-4.1-opus",
                 "claude-3-5-sonnet-latest",
                 "claude-3-opus-latest",
                 "claude-3-haiku-20240307",
@@ -201,23 +228,31 @@ struct AppConstants {
             url: "https://api.x.ai/v1/chat/completions",
             apiKeyRef: "https://console.x.ai/",
             apiModelRef: "https://docs.x.ai/docs#models",
-            defaultModel: "grok-beta",
-            models: ["grok-beta"],
+            defaultModel: "grok-4",
+            models: [
+                "grok-4",
+                "grok-beta",
+            ],
             inherits: "chatgpt"
         ),
         "gemini": defaultApiConfiguration(
             name: "Google Gemini",
-            url: "https://generativelanguage.googleapis.com/v1beta/chat/completions",
+            url: "https://generativelanguage.googleapis.com/v1beta/models",
             apiKeyRef: "https://aistudio.google.com/app/apikey",
             apiModelRef: "https://ai.google.dev/gemini-api/docs/models/gemini#model-variations",
-            defaultModel: "gemini-1.5-flash",
+            defaultModel: "gemini-2.5-pro",
             models: [
+                "gemini-2.5-pro",
+                "gemini-2.5-flash",
+                "gemini-2.5-flash-image-preview",
                 "gemini-2.0-flash-exp",
+                "gemini-1.5-pro",
                 "gemini-1.5-flash",
                 "gemini-1.5-flash-8b",
-                "gemini-1.5-pro",
             ],
-            imageUploadsSupported: true
+            imageUploadsSupported: true,
+            imageGenerationSupported: true,
+            autoEnableImageGenerationModels: ["gemini-2.5-flash-image-preview"]
         ),
         "perplexity": defaultApiConfiguration(
             name: "Perplexity",
@@ -260,7 +295,9 @@ struct AppConstants {
         ),
     ]
 
-    static let apiTypes = ["chatgpt", "ollama", "claude", "xai", "gemini", "perplexity", "deepseek", "openrouter"]
+    static let apiTypes = [
+        "openai-responses", "chatgpt", "ollama", "claude", "xai", "gemini", "perplexity", "deepseek", "openrouter",
+    ]
     static let newChatNotification = Notification.Name("newChatNotification")
     static let largeMessageSymbolsThreshold = 25000
     static let thumbnailSize: CGFloat = 300

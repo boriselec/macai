@@ -72,8 +72,12 @@ struct ChatView: View {
                 attachedImages: $attachedImages,
                 isBottomContainerExpanded: $isBottomContainerExpanded,
                 imageUploadsAllowed: chat.apiService?.imageUploadsAllowed ?? false,
+                imageGenerationSupported: chat.apiService?.imageGenerationSupported ?? false,
                 onSendMessage: {
-                    logicHandler.sendMessage(messageText: newMessage, attachedImages: attachedImages)
+                    logicHandler.sendMessage(
+                        messageText: newMessage,
+                        attachedImages: attachedImages
+                    )
                     newMessage = ""
                     attachedImages = []
                     

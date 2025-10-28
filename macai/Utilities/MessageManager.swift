@@ -34,14 +34,14 @@ class MessageManager: ObservableObject {
         chat.waitingForResponse = true
         let temperature = (chat.persona?.temperature ?? AppConstants.defaultTemperatureForChat).roundedToOneDecimal()
 
-        apiService.sendMessage(requestMessages, temperature: temperature) { [weak self] result in
+        let handleResult: (Result<String, APIError>) -> Void = { [weak self] result in
             guard let self = self else { return }
 
             switch result {
             case .success(let messageBody):
                 chat.waitingForResponse = false
-                addMessageToChat(chat: chat, message: messageBody)
-                addNewMessageToRequestMessages(chat: chat, content: messageBody, role: AppConstants.defaultRole)
+                self.addMessageToChat(chat: chat, message: messageBody)
+                self.addNewMessageToRequestMessages(chat: chat, content: messageBody, role: AppConstants.defaultRole)
                 self.viewContext.saveWithRetry(attempts: 1)
                 
                 DispatchQueue.main.async {
@@ -53,6 +53,10 @@ class MessageManager: ObservableObject {
             case .failure(let error):
                 completion(.failure(error))
             }
+        }
+
+        apiService.sendMessage(requestMessages, temperature: temperature) { result in
+            handleResult(result)
         }
     }
 
@@ -71,29 +75,75 @@ class MessageManager: ObservableObject {
 
                 let stream = try await apiService.sendMessageStream(requestMessages, temperature: temperature)
                 var accumulatedResponse = ""
+                var deferImageResponse = false
+                var streamingMessage: MessageEntity?
                 chat.waitingForResponse = true
 
                 for try await chunk in stream {
+                    guard !chunk.isEmpty else { continue }
+
                     accumulatedResponse += chunk
-                    if let lastMessage = chat.lastMessage {
-                        if lastMessage.own {
-                            self.addMessageToChat(chat: chat, message: accumulatedResponse)
+
+                    if !deferImageResponse && chunk.contains("<image-uuid>") {
+                        deferImageResponse = true
+                        if let message = streamingMessage ?? (chat.lastMessage?.own == false ? chat.lastMessage : nil) {
+                            chat.removeFromMessages(message)
+                            viewContext.delete(message)
+                            streamingMessage = nil
+                            chat.objectWillChange.send()
                         }
-                        else {
-                            let now = Date()
-                            if now.timeIntervalSince(lastUpdateTime) >= updateInterval {
-                                updateLastMessage(
-                                    chat: chat,
-                                    lastMessage: lastMessage,
-                                    accumulatedResponse: accumulatedResponse
-                                )
-                                lastUpdateTime = now
-                            }
+                    }
+
+                    if deferImageResponse {
+                        continue
+                    }
+
+                    guard let lastMessage = chat.lastMessage else { continue }
+
+                    if lastMessage.own {
+                        self.addMessageToChat(chat: chat, message: accumulatedResponse)
+                        streamingMessage = chat.lastMessage
+                    }
+                    else {
+                        let now = Date()
+                        if now.timeIntervalSince(lastUpdateTime) >= updateInterval {
+                            updateLastMessage(
+                                chat: chat,
+                                lastMessage: lastMessage,
+                                accumulatedResponse: accumulatedResponse
+                            )
+                            lastUpdateTime = now
+                            streamingMessage = lastMessage
                         }
                     }
                 }
-                updateLastMessage(chat: chat, lastMessage: chat.lastMessage!, accumulatedResponse: accumulatedResponse)
-                addNewMessageToRequestMessages(chat: chat, content: accumulatedResponse, role: AppConstants.defaultRole)
+
+                guard !accumulatedResponse.isEmpty else {
+                    completion(.failure(APIError.invalidResponse))
+                    return
+                }
+
+                if deferImageResponse {
+                    self.addMessageToChat(chat: chat, message: accumulatedResponse)
+                }
+                else if let assistantMessage = streamingMessage ?? (chat.lastMessage?.own == false ? chat.lastMessage : nil) {
+                    updateLastMessage(
+                        chat: chat,
+                        lastMessage: assistantMessage,
+                        accumulatedResponse: accumulatedResponse
+                    )
+                }
+                else {
+                    self.addMessageToChat(chat: chat, message: accumulatedResponse)
+                }
+
+                chat.waitingForResponse = false
+
+                addNewMessageToRequestMessages(
+                    chat: chat,
+                    content: accumulatedResponse,
+                    role: AppConstants.defaultRole
+                )
                 completion(.success(()))
             }
             catch {
@@ -116,7 +166,10 @@ class MessageManager: ObservableObject {
             chat: chat,
             contextSize: 3
         )
-        apiService.sendMessage(requestMessages, temperature: AppConstants.defaultTemperatureForChatNameGeneration) {
+        let personaTemperature = (chat.persona?.temperature ?? AppConstants.defaultTemperatureForChat)
+            .roundedToOneDecimal()
+
+        apiService.sendMessage(requestMessages, temperature: personaTemperature) {
             [weak self] result in
             guard let self = self else { return }
 
@@ -146,16 +199,13 @@ class MessageManager: ObservableObject {
 
     func testAPI(model: String, completion: @escaping (Result<Void, Error>) -> Void) {
         var requestMessages: [[String: String]] = []
-        var temperature = AppConstants.defaultPersonaTemperature
+        let temperature: Float = 1
 
         if !AppConstants.openAiReasoningModels.contains(model) {
             requestMessages.append([
                 "role": "system",
                 "content": "You are a test assistant.",
             ])
-        }
-        else {
-            temperature = 1
         }
 
         requestMessages.append(

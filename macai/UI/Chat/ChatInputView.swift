@@ -16,6 +16,7 @@ struct ChatInputView: View {
     @Binding var isBottomContainerExpanded: Bool
     
     let imageUploadsAllowed: Bool
+    let imageGenerationSupported: Bool
     let onSendMessage: () -> Void
     let onAddImage: () -> Void
     
@@ -28,6 +29,7 @@ struct ChatInputView: View {
             isExpanded: $isBottomContainerExpanded,
             attachedImages: $attachedImages,
             imageUploadsAllowed: imageUploadsAllowed,
+            imageGenerationSupported: imageGenerationSupported,
             onSendMessage: {
                 if editSystemMessage {
                     chat.systemMessage = newMessage
@@ -52,6 +54,7 @@ struct ChatInputView: View {
         attachedImages: .constant([]),
         isBottomContainerExpanded: .constant(false),
         imageUploadsAllowed: true,
+        imageGenerationSupported: true,
         onSendMessage: {},
         onAddImage: {}
     )

@@ -45,8 +45,8 @@ class ChatLogicHandler: ObservableObject {
         }
 
         for attachment in attachedImages {
-            if attachment.imageEntity == nil {
-                attachment.saveToEntity(context: viewContext)
+            if attachment.imageEntity?.image == nil {
+                attachment.saveToEntity(context: viewContext, waitForCompletion: true)
             }
             messageContents.append(MessageContent(imageAttachment: attachment))
         }
@@ -98,26 +98,21 @@ class ChatLogicHandler: ObservableObject {
     func handleRetryMessage(newMessage: inout String) {
         guard !chat.waitingForResponse && !isStreaming else { return }
 
-        if currentError != nil {
-            sendMessage(messageText: newMessage, attachedImages: [])
-        } else {
-            if let lastUserMessage = chatViewModel.sortedMessages.last(where: { $0.own }) {
-                let messageToResend = lastUserMessage.body
+        let messageToResend = chatViewModel.sortedMessages.last(where: { $0.own })?.body ?? newMessage
 
-                if let lastMessage = chatViewModel.sortedMessages.last {
-                    viewContext.delete(lastMessage)
-                    if !lastMessage.own,
-                        let secondLastMessage = chatViewModel.sortedMessages.dropLast().last
-                    {
-                        viewContext.delete(secondLastMessage)
-                    }
-                    try? viewContext.save()
-                }
+        guard !messageToResend.isEmpty else { return }
 
-                newMessage = messageToResend
-                sendMessage(messageText: newMessage, attachedImages: [])
+        if currentError == nil,
+            let lastMessage = chatViewModel.sortedMessages.last {
+            viewContext.delete(lastMessage)
+            if !lastMessage.own,
+                let secondLastMessage = chatViewModel.sortedMessages.dropLast().last {
+                viewContext.delete(secondLastMessage)
             }
+            try? viewContext.save()
         }
+
+        sendMessage(messageText: messageToResend, attachedImages: [])
     }
     
     func ignoreError() {
