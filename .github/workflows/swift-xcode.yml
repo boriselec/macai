@@ -5,6 +5,7 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -14,6 +15,51 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Build
+        
+      - name: List Xcode versions
+        run: ls /Applications/ | grep Xcode
+        
+      - name: Select Xcode version
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+        
+      - name: Show build settings
+        run: xcodebuild -project "macai.xcodeproj" -scheme "macai" -showBuildSettings
+        
+      - name: Clean and Build
         run: |
-          xcodebuild clean build analyze -scheme "macai" -"project" "macai.xcodeproj" -allowProvisioningUpdates -allowProvisioningDeviceRegistration CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+          xcodebuild clean build \
+            -project "macai.xcodeproj" \
+            -scheme "macai" \
+            -configuration Release \
+            -derivedDataPath ./build \
+            -allowProvisioningUpdates \
+            -allowProvisioningDeviceRegistration \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS=""
+            
+      - name: Find built app
+        run: |
+          echo "Looking for built app..."
+          find ./build -name "*.app" -type d
+          find . -name "macai.app" -type d
+          
+      - name: Create app archive
+        run: |
+          APP_PATH=$(find ./build -name "macai.app" -type d | head -1)
+          if [ -n "$APP_PATH" ]; then
+            echo "Found app at: $APP_PATH"
+            ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" macai.zip
+            ls -la macai.zip
+          else
+            echo "App not found!"
+            exit 1
+          fi
+          
+      - name: Upload App Bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: macai-app
+          path: macai.zip
+          retention-days: 30
