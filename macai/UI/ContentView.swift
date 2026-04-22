@@ -40,13 +40,16 @@ struct ContentView: View {
 
     @State private var windowRef: NSWindow?
     @State private var openedChatId: String? = nil
-    @State private var columnVisibility = NavigationSplitViewVisibility.all
+    @AppStorage("isSidebarVisible") var isSidebarVisible = true
     @State private var lastChatCount = 0
     @State private var searchText = ""
     @State private var isSearchPresented = false
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
+        NavigationSplitView(columnVisibility: Binding(
+            get: { isSidebarVisible ? .all : .detailOnly },
+            set: { isSidebarVisible = $0 != .detailOnly }
+        )) {
             ChatListView(selectedChat: $selectedChat, searchText: $searchText)
                 .environmentObject(attentionStore)
                 .navigationSplitViewColumnWidth(
@@ -444,12 +447,12 @@ struct ContentView: View {
 
     private func updateSidebarVisibilityForChatCount(previousCount: Int, newCount: Int) {
         if newCount == 0 {
-            columnVisibility = .detailOnly
+            isSidebarVisible = false
             return
         }
 
         if previousCount == 0 && newCount > 0 {
-            columnVisibility = .all
+            isSidebarVisible = true
         }
     }
 }
