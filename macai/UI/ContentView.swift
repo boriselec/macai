@@ -40,7 +40,7 @@ struct ContentView: View {
 
     @State private var windowRef: NSWindow?
     @State private var openedChatId: String? = nil
-    @State private var columnVisibility = NavigationSplitViewVisibility.all
+    @AppStorage("columnVisibility") private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var lastChatCount = 0
     @State private var searchText = ""
     @State private var isSearchPresented = false
