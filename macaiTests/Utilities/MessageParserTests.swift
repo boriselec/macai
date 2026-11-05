@@ -263,5 +263,114 @@ class MessageParserTests: XCTestCase {
         }
         
     }
-}
 
+    /*
+     $$...$$ display math as emitted by Gemini, including indented lines inside list items
+     */
+    func testParseMessageFromStringSingleLineDollarFormulas() {
+        let input = """
+        To derive the quadratic formula, solve for $x$ by completing the square. (Assume $a \\neq 0$).
+
+        **1. Start with the standard form:**
+        $$ax^2 + bx + c = 0$$
+        $$ax^2 + bx = -c$$
+
+        *   **Step 2: Swap $a$ and $d$, negate $b$ and $c$**
+            $$\\begin{pmatrix} 6 & -7 \\\\ -2 & 4 \\end{pmatrix}$$
+        $$P(+) = 0.0095 + 0.0495 = 0.059 \\text{ (5.9%)}$$
+        """
+
+        let result = parser.parseMessageFromString(input: input).map(describe)
+        XCTAssertEqual(result, [
+            "text: To derive the quadratic formula, solve for $x$ by completing the square. (Assume $a \\neq 0$).\n\n**1. Start with the standard form:**",
+            "formula: ax^2 + bx + c = 0",
+            "formula: ax^2 + bx = -c",
+            "text: *   **Step 2: Swap $a$ and $d$, negate $b$ and $c$**",
+            "formula: \\begin{pmatrix} 6 & -7 \\\\ -2 & 4 \\end{pmatrix}",
+            "formula: P(+) = 0.0095 + 0.0495 = 0.059 \\text{ (5.9%)}",
+        ])
+    }
+
+    func testParseMessageFromStringMultiLineDollarFormula() {
+        let input = """
+        Bayes' theorem:
+        $$
+        P(A|B) = \\frac{P(B|A) \\times P(A)}{P(B)}
+        $$
+        Done.
+        """
+
+        let result = parser.parseMessageFromString(input: input).map(describe)
+        XCTAssertEqual(result, [
+            "text: Bayes' theorem:",
+            "formula: P(A|B) = \\frac{P(B|A) \\times P(A)}{P(B)}",
+            "text: Done.",
+        ])
+    }
+
+    /*
+     Lines that contain $$ but are not standalone display math stay text
+     */
+    func testParseMessageFromStringDollarSignsInText() {
+        let input = """
+        4. **Multiply by contribution:** $$500 \\times 520.92666 = \\mathbf{$260,463.33}$
+        $$x$$ where $x$ is the unknown
+        $$$$
+        """
+
+        let result = parser.parseMessageFromString(input: input).map(describe)
+        XCTAssertEqual(result, ["text: " + input])
+    }
+
+    /*
+     $$ inside code and thinking blocks is content, not display math
+     */
+    func testParseMessageFromStringDollarSignsInCodeAndThinking() {
+        let input = """
+        ```latex
+        $$
+        E=mc^2
+        $$
+        ```
+        <think>
+        $$x$$
+        </think>
+        $$y$$
+        """
+
+        let result = parser.parseMessageFromString(input: input).map(describe)
+        XCTAssertEqual(result, [
+            "code(latex): $$\nE=mc^2\n$$",
+            "thinking: $$x$$",
+            "formula: y",
+        ])
+    }
+
+    /*
+     Inline math delimiters, with cases from Gemini output; dollar amounts and inline code stay text
+     */
+    func testInlineMathFormulas() {
+        func latex(_ text: String) -> [String] {
+            InlineMath.formulas(in: text).map { $0.latex }
+        }
+
+        XCTAssertEqual(latex("solve for $x$ by completing the square. (Assume $a \\neq 0$)."), ["x", "a \\neq 0"])
+        XCTAssertEqual(latex("- \\( S \\) is the action."), [" S "])
+        XCTAssertEqual(latex("Choose $x_i^*$ in each $i$-th subinterval"), ["x_i^*", "i"])
+        XCTAssertEqual(latex("$\\$500 \\times 520.92666 = \\mathbf{\\$260,463.33}$"), ["\\$500 \\times 520.92666 = \\mathbf{\\$260,463.33}"])
+        XCTAssertEqual(latex("multiply by $(1 + r)$, which yields **$261,982.70**)."), ["(1 + r)"])
+        XCTAssertEqual(latex("It costs between $5 and $10, or $5-$10."), [])
+        XCTAssertEqual(latex("Run `echo $HOME/$PATH` first"), [])
+        XCTAssertEqual(latex("Display math $$x$$ mid-line is not inline"), [])
+    }
+
+    private func describe(_ element: MessageElements) -> String {
+        switch element {
+        case .text(let text): return "text: \(text)"
+        case .formula(let formula): return "formula: \(formula)"
+        case .code(let code, let lang, _): return "code(\(lang)): \(code)"
+        case .thinking(let thinking, _): return "thinking: \(thinking)"
+        default: return "\(element)"
+        }
+    }
+}
