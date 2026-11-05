@@ -52,6 +52,18 @@ struct MessageParser {
         }
     }
 
+    /// `$$` display math is rewritten to `\[`/`\]` so it goes through the same formula handling
+    private func replacingDollarDelimiters(_ line: String, isFormulaBlockOpened: Bool) -> String {
+        let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+        if trimmedLine == "$$" {
+            return isFormulaBlockOpened ? "\\]" : "\\["
+        }
+        if trimmedLine.count > 4 && trimmedLine.hasPrefix("$$") && trimmedLine.hasSuffix("$$") {
+            return "\\[\(trimmedLine.dropFirst(2).dropLast(2))\\]"
+        }
+        return line
+    }
+
     func parseMessageFromString(input: String) -> [MessageElements] {
 
         let lines = input.split(separator: "\n", omittingEmptySubsequences: false).map { String($0) }
@@ -97,6 +109,7 @@ struct MessageParser {
         func appendFormulaLines() {
             let combinedLines = formulaLines.joined(separator: "\n")
             elements.append(.formula(combinedLines))
+            formulaLines = []
         }
 
         func handleTableLine(line: String) {
@@ -369,8 +382,11 @@ struct MessageParser {
             appendThinkingBlockIfNeeded()
         }
 
-        for (index, line) in lines.enumerated() {
+        for (index, rawLine) in lines.enumerated() {
             let isLastLine = index == lines.count - 1
+            let line = isCodeBlockOpened || isThinkingBlockOpened
+                ? rawLine
+                : replacingDollarDelimiters(rawLine, isFormulaBlockOpened: isFormulaBlockOpened)
             let blockType = detectBlockType(line: line)
 
             switch blockType {

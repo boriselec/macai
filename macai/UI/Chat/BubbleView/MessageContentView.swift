@@ -219,16 +219,26 @@ struct MessageContentView: View {
     @ViewBuilder
     private func renderText(_ text: String, elementIndex: Int = 0) -> some View {
         let attributedString: NSAttributedString = {
+            // Inline formulas are swapped for attachment characters so Markdown parsing doesn't touch them.
+            // While streaming they stay raw, like formula blocks.
+            let (markdownText, formulaAttachments): (String, [NSTextAttachment]) = isStreaming
+                ? (text, [])
+                : InlineMath.extract(
+                    from: text,
+                    fontSize: effectiveFontSize + 2,
+                    textColor: colorScheme == .dark ? .white : .black
+                )
             let options = AttributedString.MarkdownParsingOptions(
                 interpretedSyntax: .inlineOnlyPreservingWhitespace
             )
             let initialAttributedString =
-                (try? NSAttributedString(markdown: text, options: options))
-                ?? NSAttributedString(string: text)
+                (try? NSAttributedString(markdown: markdownText, options: options))
+                ?? NSAttributedString(string: markdownText)
 
             let mutableAttributedString = NSMutableAttributedString(
                 attributedString: initialAttributedString
             )
+            InlineMath.attach(formulaAttachments, to: mutableAttributedString)
             let fullRange = NSRange(location: 0, length: mutableAttributedString.length)
             let systemFont = NSFont.systemFont(ofSize: effectiveFontSize)
 
@@ -307,10 +317,30 @@ struct MessageContentView: View {
             AttributedText(attributedString)
                 .textSelection(.enabled)
         } else {
-            Text(.init(attributedString))
+            textWithAttachments(attributedString)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    /// SwiftUI Text ignores NSTextAttachment, so attachments are interpolated as inline images
+    private func textWithAttachments(_ attributedString: NSAttributedString) -> Text {
+        let fullRange = NSRange(location: 0, length: attributedString.length)
+        guard attributedString.containsAttachments(in: fullRange) else {
+            return Text(.init(attributedString))
+        }
+        var result = Text(verbatim: "")
+        attributedString.enumerateAttribute(.attachment, in: fullRange) { value, range, _ in
+            let segment: Text
+            if let attachment = value as? NSTextAttachment, let image = attachment.image {
+                segment = Text(Image(nsImage: image)).baselineOffset(attachment.bounds.origin.y)
+            }
+            else {
+                segment = Text(.init(attributedString.attributedSubstring(from: range)))
+            }
+            result = Text("\(result)\(segment)")
+        }
+        return result
     }
 
     @ViewBuilder
